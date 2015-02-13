@@ -2,7 +2,7 @@ var path = require('path')
   , moment = require('moment')
   , crypto = require('crypto')
   , xml2js = require('xml2js')
-  ;
+  , Bacon = require('baconjs');
 
 
 exports.client = null;
@@ -256,11 +256,64 @@ exports.getFolders = function(id, callback) {
       callback(null, {});
     }
   });
-}
+};
+
+var fieldBuilder = function(fields) {
+  return {
+    buildFields: function() {
+      return fields.reduce(function(memo, item) {
+        return memo + '<t:FieldURI FieldURI="' + item + '" />';
+      }, '');
+    },
+
+    processResult: function(item) {
+      return fields.reduce(function(memo, field) {
+        var propName = field.replace(/[a-z]+:/, '');
+        var val = item['t:' + propName];
+        if(val) {
+          var camelCased = propName.charAt(0).toLowerCase() + propName.substr(1);
+          memo[camelCased] = item['t:' + propName];
+        }
+        return memo;
+      }, {});
+    }
+  }
+};
 
 
-exports.getCalendarItems = function(limit, callback) {
-  var soapRequest =
+var findItem = function(request, callback) {
+  exports.client.FindItem(request, function(err, _, body) {
+    if (err) {
+      return callback(err);
+    }
+    var parser = new xml2js.Parser();
+    parser.parseString(body, function(err, result) {
+      if (err) {
+        callback(err);
+      } else {
+        callback(null, result);
+      }
+    });
+  })
+};
+
+var errorFactory = function(queryFn) {
+  return function(event) {
+    if(event.hasValue()) {
+      var result = event.value();
+      var responseCode = queryFn(result);
+      if (responseCode !== 'NoError') {
+        this.push(new Bacon.Error(responseCode));
+        return;
+      }
+    }
+    this.push(event);
+  };
+};
+
+exports.getCalendarItems = function(startDate, endDate, callback) {
+
+  var calendarFolderRequest =
     '<tns:GetFolder>' +
       '<tns:FolderShape>' +
         '<t:BaseShape>IdOnly</t:BaseShape>' +
@@ -268,82 +321,132 @@ exports.getCalendarItems = function(limit, callback) {
       '<tns:FolderIds>' +
       '<t:DistinguishedFolderId Id="calendar" />' +
       '</tns:FolderIds>' +
-    '</tns:GetFolder>'
+    '</tns:GetFolder>';
 
-  exports.client.FindItem(soapRequest, function(err, result, body) {
-    if (err) {
-      console.log("error in exchanger");
-      return callback(err);
-    }
+  var calendarFolderRequestErrorHandler = errorFactory(function(result) {
+    return result['s:Body']['m:GetFolderResponse']['m:ResponseMessages']['m:GetFolderResponseMessage']['m:ResponseCode'];
+  });
 
-    var parser = new xml2js.Parser();
-    var folderId;
-    var changeKey;
+  var extractIdAndChangeKey = function(result) {
+    var folderItem = result['s:Body']['m:GetFolderResponse']['m:ResponseMessages']['m:GetFolderResponseMessage']['m:Folders']['t:CalendarFolder']['t:FolderId'];
+    return {
+      folderId:folderItem['@'].Id,
+      changeKey:folderItem['@'].ChangeKey
+    };
+  };
 
-    parser.parseString(body, function(err, result) {
-      var responseCode = result['s:Body']['m:GetFolderResponse']['m:ResponseMessages']['m:GetFolderResponseMessage']['m:ResponseCode'];
+  // First request succeeded and received folderId and changeKey. Now get calendatrItems
+  var calendarReq = fieldBuilder([
+    'item:Subject',
+    'calendar:Start',
+    'calendar:End',
+    'calendar:Duration',
+    'calendar:Location',
+    'calendar:Organizer'
+  ]);
 
-      if (responseCode !== 'NoError') {
-        return callback(new Error(responseCode));
-      }
-
-      var folderItem = result['s:Body']['m:GetFolderResponse']['m:ResponseMessages']['m:GetFolderResponseMessage']['m:Folders']['t:CalendarFolder']['t:FolderId'];
-      folderId = folderItem['@'].Id;
-      changeKey = folderItem['@'].ChangeKey;
-    });
-
-    // First request succeeded and received folderId and changeKey.
-    // Now get calendatrItems
-
-    var soapRequest2 =
-      '<tns:FindItem Traversal="Shallow">' +
+  var createItemsRequest = function(result) {
+    return '<tns:FindItem Traversal="Shallow">' +
         '<tns:ItemShape>' +
           '<t:BaseShape>IdOnly</t:BaseShape>' +
-          '<t:AdditionalProperties>' +
-            '<t:FieldURI FieldURI="item:Subject" />' +
-            '<t:FieldURI FieldURI="calendar:Start" />' +
-            '<t:FieldURI FieldURI="calendar:End" />' +
-          '</t:AdditionalProperties>' +
+          '<t:AdditionalProperties>' + calendarReq.buildFields() + '</t:AdditionalProperties>' +
         '</tns:ItemShape>' +
-        '<tns:CalendarView MaxEntriesReturned="5" StartDate="2013-08-21T17:30:24.127Z" EndDate="2014-09-20T17:30:24.127Z" />' +
+        '<tns:CalendarView StartDate="' + startDate + '" EndDate="' + endDate + '"/>' +
         '<tns:ParentFolderIds>' +
-          '<t:FolderId Id="'+folderId+'" ChangeKey="'+changeKey+'" />' +
+          '<t:FolderId Id="' + result.folderId + '" ChangeKey="' + result.changeKey + '" />' +
         '</tns:ParentFolderIds>' +
-      '</tns:FindItem>'
+      '</tns:FindItem>';
+  };
 
-    exports.client.FindItem(soapRequest2, function(err, result, body) {
-      if (err) {
-        console.log("error in exchanger");
-        return callback(err);
-      }
-
-      parser.parseString(body, function(err, result) {
-        var responseCode = result['s:Body']['m:FindItemResponse']['m:ResponseMessages']['m:FindItemResponseMessage']['m:ResponseCode'];
-        if (responseCode !== 'NoError') {
-        return callback(new Error(responseCode));
-        }
-
-        var rootFolder = result['s:Body']['m:FindItemResponse']['m:ResponseMessages']['m:FindItemResponseMessage']['m:RootFolder'];
-
-        var calendarItems = [];
-        rootFolder['t:Items']['t:CalendarItem'].forEach(function(item, idx) {
-
-          var itemId = {
-            id: item['t:ItemId']['@'].Id,
-            changeKey: item['t:ItemId']['@'].ChangeKey
-          };
-
-          var dateTimeReceived = item['t:DateTimeReceived'];
-
-          calendarItems.push({
-            id: itemId,
-            subject: item['t:Subject'],
-            start: item['t:Start'],
-            end: item['t:End']
-          });
-        });
-        callback(null, calendarItems);
-      });
-    });
+  var calendarItemRequestErrorHandler = errorFactory(function(result) {
+    return result['s:Body']['m:FindItemResponse']['m:ResponseMessages']['m:FindItemResponseMessage']['m:ResponseCode'];
   });
+
+  var extractMailboxName = function(item) {
+    return item['t:Mailbox']['t:Name'];
+  };
+
+  var extractAttendees = function(item) {
+    return item['t:Attendee'].map(extractMailboxName);
+  };
+
+  var createCalendarItem = function(result) {
+    var rootFolder = result['s:Body']['m:FindItemResponse']['m:ResponseMessages']['m:FindItemResponseMessage']['m:RootFolder'];
+    return rootFolder['t:Items']['t:CalendarItem'].map(function(item, idx) {
+      var itemId = {
+        id: item['t:ItemId']['@'].Id,
+        changeKey: item['t:ItemId']['@'].ChangeKey
+      };
+
+      var calendarItem = calendarReq.processResult(item)
+      calendarItem.id = itemId;
+      calendarItem.organizer = extractMailboxName(calendarItem.organizer);
+      return calendarItem;
+    })
+  };
+
+  var itemReq = fieldBuilder([
+    'item:Body',
+    'calendar:RequiredAttendees',
+    'calendar:OptionalAttendees',
+  ]);
+
+  var createItemRequest = function(result) {
+    return '<tns:GetItem>' +
+      '<tns:ItemShape>' +
+        '<t:BaseShape>IdOnly</t:BaseShape>' +
+        '<t:AdditionalProperties>' + itemReq.buildFields() + '</t:AdditionalProperties>' +
+      '</tns:ItemShape>' +
+      '<tns:ItemIds>' +
+        '<t:ItemId Id="' + result.id.id + '" ChangeKey="' + result.id.changeKey + '"/>' +
+      '</tns:ItemIds>' +
+    '</tns:GetItem>';
+  };
+
+  var calendarItemDetailsErrorHandler = errorFactory(function(result) {
+    return result['s:Body']['m:GetItemResponse']['m:ResponseMessages']['m:GetItemResponseMessage']['m:ResponseCode'];
+  });
+
+  var createCalendarItemDetails = function(mergeTarget, result) {
+    var itemResponse = result['s:Body']['m:GetItemResponse']['m:ResponseMessages']['m:GetItemResponseMessage']['m:Items']['t:CalendarItem'];
+    var res = itemReq.processResult(itemResponse);
+    for(var i in res) {
+      if(res.hasOwnProperty(i)) {
+        mergeTarget[i] = res[i];
+      }
+    }
+
+    mergeTarget['requiredAttendees'] = mergeTarget['requiredAttendees'] ? extractAttendees(mergeTarget['requiredAttendees']) : [];
+    mergeTarget['optionalAttendees'] = mergeTarget['optionalAttendees'] ? extractAttendees(mergeTarget['optionalAttendees']) : [];
+
+    return mergeTarget;
+  };
+
+  var calendarFolderStream = Bacon.fromNodeCallback(findItem, calendarFolderRequest)
+    .withHandler(calendarFolderRequestErrorHandler)
+    .map(extractIdAndChangeKey)
+    .map(createItemsRequest)
+    .flatMap(function(calendarItemsRequest) {
+      return Bacon.fromNodeCallback(findItem, calendarItemsRequest);
+    })
+    .withHandler(calendarItemRequestErrorHandler)
+    .map(createCalendarItem)
+    .flatMap(function(items) {
+      return Bacon.fromArray(items)
+        // Need to use a concurrency limit since EWS only allows 10 max simultaneous connections
+        .flatMapWithConcurrencyLimit(5, function(item) {
+          return Bacon.fromNodeCallback(findItem, createItemRequest(item))
+            .withHandler(calendarItemDetailsErrorHandler)
+            .map(function(result) {
+              return createCalendarItemDetails(item, result);
+            });
+        })
+        // Collect up all the annotated items into an array for returning to the client.
+        .fold([], function (arr, meeting) {
+          return arr.concat([meeting]);
+        })
+    });
+
+  calendarFolderStream.onValue(callback.bind(null, null));
+  calendarFolderStream.onError(callback);
 }

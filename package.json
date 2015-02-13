@@ -4,9 +4,6 @@
   "author": "Adam Hill <adamghill@yahoo.com>",
   "description": "Query Exchange Web Services",
   "license": "MIT",
-  "engines": {
-    "node": "0.8.x"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/plemarquand/exchanger.git"
@@ -21,6 +18,7 @@
     "email"
   ],
   "dependencies": {
+    "baconjs": "^0.7.46",
     "moment": "1.6.2",
     "soap-ntlm": "^0.6.3",
     "underscore": "1.3.3",
