@@ -367,7 +367,9 @@ exports.getCalendarItems = function(startDate, endDate, callback) {
   };
 
   var extractAttendees = function(item) {
-    return item['t:Attendee'].map(extractMailboxName);
+    var attendees = item['t:Attendee'];
+    attendees = Array.isArray(attendees) ? attendees : [attendees];
+    return attendees.map(extractMailboxName);
   };
 
   var createCalendarItem = function(result) {
@@ -378,11 +380,11 @@ exports.getCalendarItems = function(startDate, endDate, callback) {
         changeKey: item['t:ItemId']['@'].ChangeKey
       };
 
-      var calendarItem = calendarReq.processResult(item)
+      var calendarItem = calendarReq.processResult(item);
       calendarItem.id = itemId;
       calendarItem.organizer = extractMailboxName(calendarItem.organizer);
       return calendarItem;
-    })
+    });
   };
 
   var itemReq = fieldBuilder([
@@ -416,8 +418,8 @@ exports.getCalendarItems = function(startDate, endDate, callback) {
       }
     }
 
-    mergeTarget['requiredAttendees'] = mergeTarget['requiredAttendees'] ? extractAttendees(mergeTarget['requiredAttendees']) : [];
-    mergeTarget['optionalAttendees'] = mergeTarget['optionalAttendees'] ? extractAttendees(mergeTarget['optionalAttendees']) : [];
+    mergeTarget.requiredAttendees = mergeTarget.requiredAttendees ? extractAttendees(mergeTarget.requiredAttendees) : [];
+    mergeTarget.optionalAttendees = mergeTarget.optionalAttendees ? extractAttendees(mergeTarget.optionalAttendees) : [];
 
     return mergeTarget;
   };
@@ -444,9 +446,9 @@ exports.getCalendarItems = function(startDate, endDate, callback) {
         // Collect up all the annotated items into an array for returning to the client.
         .fold([], function (arr, meeting) {
           return arr.concat([meeting]);
-        })
+        });
     });
 
   calendarFolderStream.onValue(callback.bind(null, null));
   calendarFolderStream.onError(callback);
-}
+};
