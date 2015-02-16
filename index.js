@@ -1,12 +1,10 @@
-var path = require('path')
-  , moment = require('moment')
-  , crypto = require('crypto')
-  , xml2js = require('xml2js')
-  , Bacon = require('baconjs');
-
+var path = require('path');
+var moment = require('moment');
+var crypto = require('crypto');
+var xml2js = require('xml2js');
+var Bacon = require('baconjs');
 
 exports.client = null;
-
 
 exports.initialize = function(settings, callback) {
   var soap = require('soap-ntlm');
@@ -27,8 +25,7 @@ exports.initialize = function(settings, callback) {
 
     return callback(null);
   }, endpoint);
-}
-
+};
 
 exports.getEmails = function(folderName, limit, callback) {
   if (typeof(folderName) === "function") {
@@ -120,14 +117,14 @@ exports.getEmails = function(folderName, limit, callback) {
       callback(null, emails);
     });
   });
-}
+};
 
 
 exports.getEmail = function(itemId, callback) {
   if (!exports.client) {
-    return callback(new Error('Call initialize()'))
+    return callback(new Error('Call initialize()'));
   }
-  if ((!itemId['id'] || !itemId['changeKey']) && itemId.indexOf('|') > 0) {
+  if ((!itemId.id || !itemId.changeKey) && itemId.indexOf('|') > 0) {
     var s = itemId.split('|');
 
     itemId = {
@@ -190,7 +187,7 @@ exports.getEmail = function(itemId, callback) {
         if (mailbox instanceof Array) {
           mailbox.forEach(function(m, idx) {
             mailboxes.push(getMailboxObj(m));
-          })
+          });
         } else {
           mailboxes.push(getMailboxObj(mailbox));
         }
@@ -222,8 +219,7 @@ exports.getEmail = function(itemId, callback) {
       callback(null, email);
     });
   });
-}
-
+};
 
 exports.getFolders = function(id, callback) {
   if (typeof(id) == 'function') {
@@ -243,7 +239,7 @@ exports.getFolders = function(id, callback) {
 
   exports.client.FindFolder(soapRequest, function(err, result) {
     if (err) {
-      callback(err)
+      callback(err);
     }
 
     if (result.ResponseMessages.FindFolderResponseMessage.ResponseCode == 'NoError') {
@@ -277,7 +273,7 @@ var fieldBuilder = function(fields) {
         return memo;
       }, {});
     }
-  }
+  };
 };
 
 
@@ -294,7 +290,7 @@ var findItem = function(request, callback) {
         callback(null, result);
       }
     });
-  })
+  });
 };
 
 var errorFactory = function(queryFn) {
