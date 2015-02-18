@@ -20,7 +20,7 @@
   "dependencies": {
     "baconjs": "^0.7.46",
     "moment": "1.6.2",
-    "soap-ntlm": "^0.6.3",
+    "soap-ntlm": "plemarquand/node-soap",
     "underscore": "1.3.3",
     "xml2js": "0.1.14"
   },
