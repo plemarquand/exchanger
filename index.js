@@ -359,13 +359,22 @@ exports.getCalendarItems = function(startDate, endDate, callback) {
   });
 
   var extractMailboxName = function(item) {
+    if(!item || !item['t:Mailbox']) {
+      return null;
+    }
+
     return item['t:Mailbox']['t:Name'];
   };
 
   var extractAttendees = function(item) {
     var attendees = item['t:Attendee'];
     attendees = Array.isArray(attendees) ? attendees : [attendees];
-    return attendees.map(extractMailboxName);
+    return attendees.map(extractMailboxName).filter(function(attendee) {
+      if(!attendee) {
+        console.warn('Warning, no item or mailbox found on: ' + require('util').inspect(item, {depth: null}));
+      }
+      return !!attendee;
+    });
   };
 
   var createCalendarItem = function(result) {
